@@ -3,3 +3,8 @@ dist
 .DS_Store
 .vite
 *.log
+test-results/
+playwright-report/
+release/
+test-results-desktop/
+benchmark-results/

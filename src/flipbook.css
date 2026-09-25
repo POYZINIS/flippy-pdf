@@ -29,6 +29,11 @@
   height: 100vh;
 }
 
+.ic-external-controls .ic-toolbar,
+.ic-external-controls .ic-side {
+  display: none;
+}
+
 /* ----------- single-page (mobile/tablet) overrides ----------- */
 
 .ic-root.ic-single-page .ic-page-left,

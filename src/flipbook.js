@@ -43,6 +43,10 @@ export class Flipbook {
       flipDuration: 700,
       enableDrag: true,
       enableKeyboard: true,
+      showControls: true,
+      viewMode: 'auto',
+      onStateChange: null,
+      onError: null,
       // Below this stage width (px), switch to one-page-at-a-time layout
       // (phones + tablets in portrait). Above, render two-page spreads.
       singlePageBreakpoint: 900,
@@ -82,16 +86,20 @@ export class Flipbook {
     this._setLoading(true, 'Loading PDF…');
     try {
       const task = pdfjsLib.getDocument({ url: this.options.pdfUrl });
+      this._loadingTask = task;
       task.onProgress = ({ loaded, total }) => {
+        if (this._destroyed) return;
         if (total) {
           const pct = Math.round((loaded / total) * 100);
           this._setLoading(true, `Loading PDF… ${pct}%`);
         }
       };
       this.pdf = await task.promise;
+      if (this._destroyed) return this;
       this.numPages = this.pdf.numPages;
 
       const first = await this.pdf.getPage(1);
+      if (this._destroyed) return this;
       const vp = first.getViewport({ scale: 1 });
       this.aspectRatio = vp.width / vp.height;
 
@@ -99,12 +107,18 @@ export class Flipbook {
       this._applyBookSize();
       this._renderSpread();
       this._updateToolbar();
+      const cover = await this._renderPage(1);
+      if (this._destroyed) { URL.revokeObjectURL(cover); return this; }
+      this.pageURLs[1] = cover;
+      this._renderSpread();
       this._setLoading(false);
 
       this._renderQueue();
     } catch (err) {
+      if (this._destroyed) return this;
       console.error('[Flipbook] load failed', err);
       this._setLoading(true, 'Failed to load PDF');
+      this.options.onError?.(err);
     }
     return this;
   }
@@ -120,6 +134,8 @@ export class Flipbook {
   }
 
   goTo(page) {
+    if (!Number.isFinite(page)) return;
+    page = Math.round(page);
     page = clamp(page, 1, this.numPages);
     const idx = this.spreads.findIndex(([l, r]) => l === page || r === page);
     if (idx >= 0 && idx !== this.spreadIndex && !this.flipping) {
@@ -129,14 +145,40 @@ export class Flipbook {
     }
   }
 
+  getState() {
+    return {
+      page: this._currentPage(),
+      total: this.numPages,
+      zoom: this.zoom,
+      singlePage: this.singlePage,
+      atStart: this.spreadIndex === 0,
+      atEnd: this.spreadIndex >= this.spreads.length - 1,
+    };
+  }
+
+  setZoom(zoom) {
+    if (Number.isFinite(zoom)) this._setZoom(zoom);
+  }
+
+  setViewMode(mode) {
+    if (!['auto', 'single', 'spread'].includes(mode)) return;
+    this.options.viewMode = mode;
+    this._applyBookSize();
+  }
+
   destroy() {
     this._destroyed = true;
+    this._cancelFlipWait?.();
+    document.removeEventListener('pointermove', this._onPointerMoveBound);
+    document.removeEventListener('pointerup', this._onPointerUpBound);
+    document.removeEventListener('pointercancel', this._onPointerUpBound);
+    this._drag = null;
     this.pageURLs.forEach((u) => u && URL.revokeObjectURL(u));
-    if (this.pdf) this.pdf.destroy();
+    this._loadingTask?.destroy().catch(() => {});
     if (this._resizeObserver) this._resizeObserver.disconnect();
     document.removeEventListener('keydown', this._onKeyDownBound);
     document.removeEventListener('fullscreenchange', this._onFsChangeBound);
-    this.root.classList.remove('ic-root');
+    this.root.classList.remove('ic-root', 'ic-single-page', 'ic-external-controls');
     this.root.innerHTML = '';
   }
 
@@ -144,6 +186,7 @@ export class Flipbook {
 
   _buildUI() {
     this.root.classList.add('ic-root');
+    this.root.classList.toggle('ic-external-controls', !this.options.showControls);
     this.root.innerHTML = `
       <div class="ic-stage">
         <button class="ic-side ic-side-prev" aria-label="Previous spread" type="button">${ICONS.prev}</button>
@@ -264,6 +307,7 @@ export class Flipbook {
   }
 
   _applyBookSize() {
+    if (this._destroyed) return;
     const stage = this._dom.stage;
     if (!stage) return;
     const stageW = stage.clientWidth;
@@ -283,7 +327,8 @@ export class Flipbook {
     // Pick mode based on stage width. If it changes, switch and bail —
     // _setMode will rebuild and call us again.
     if (this.numPages > 0) {
-      const wantsSingle = stageW < this.options.singlePageBreakpoint;
+      const wantsSingle = this.options.viewMode === 'single' ||
+        (this.options.viewMode === 'auto' && stageW < this.options.singlePageBreakpoint);
       if (wantsSingle !== this.singlePage) {
         this._setMode(wantsSingle);
         return;
@@ -308,6 +353,11 @@ export class Flipbook {
 
   _setMode(singlePage) {
     if (this.singlePage === singlePage) return;
+    this._cancelFlipWait?.();
+    document.removeEventListener('pointermove', this._onPointerMoveBound);
+    document.removeEventListener('pointerup', this._onPointerUpBound);
+    document.removeEventListener('pointercancel', this._onPointerUpBound);
+    this._drag = null;
     const currentPage = this._currentPage();
     this.singlePage = singlePage;
     this.root.classList.toggle('ic-single-page', singlePage);
@@ -335,6 +385,7 @@ export class Flipbook {
   _setZoom(z) {
     this.zoom = clamp(z, 0.5, 2.5);
     this._applyBookSize();
+    this.options.onStateChange?.(this.getState());
   }
 
   _toggleFullscreen() {
@@ -346,6 +397,7 @@ export class Flipbook {
   }
 
   _onFullscreenChange() {
+    if (this._destroyed) return;
     const inFs = document.fullscreenElement === this.root;
     this._dom.btnFullscreen.innerHTML = inFs ? ICONS.exitFullscreen : ICONS.fullscreen;
     this.root.classList.toggle('ic-fullscreen', inFs);
@@ -388,7 +440,11 @@ export class Flipbook {
     }
     for (let i = 1; i <= this.numPages; i++) add(i);
 
-    for (const pageNum of order) {
+    while (order.length) {
+      // Prioritize a newly selected spread before continuing background work.
+      const visible = this.spreads[this.spreadIndex] || [];
+      const priority = visible.find((n) => n && order.includes(n));
+      const pageNum = order.splice(priority ? order.indexOf(priority) : 0, 1)[0];
       if (this._destroyed) return;
       if (this.pageURLs[pageNum]) continue;
       try {
@@ -398,7 +454,9 @@ export class Flipbook {
         const [cl, cr] = this.spreads[this.spreadIndex] || [];
         if (pageNum === cl || pageNum === cr) this._renderSpread();
       } catch (e) {
+        if (this._destroyed) return;
         console.warn('[Flipbook] failed to render page', pageNum, e);
+        this.options.onError?.(e);
       }
     }
   }
@@ -426,6 +484,7 @@ export class Flipbook {
   _setPageContent(el, pageNum) {
     if (!pageNum) {
       el.classList.add('ic-page-empty');
+      el.classList.remove('ic-page-pending');
       el.style.backgroundImage = '';
       return;
     }
@@ -453,6 +512,7 @@ export class Flipbook {
     this._dom.btnNext.disabled = atEnd;
     this._dom.sidePrev.classList.toggle('ic-side-disabled', atStart);
     this._dom.sideNext.classList.toggle('ic-side-disabled', atEnd);
+    this.options.onStateChange?.(this.getState());
   }
 
   // ---------- internal: flipping ----------
@@ -537,14 +597,29 @@ export class Flipbook {
     leaf.style.transition = `transform ${this.options.flipDuration}ms cubic-bezier(0.45, 0.05, 0.25, 1)`;
     leaf.style.transform = this._leafTransform(direction, 1);
 
-    const onEnd = () => {
-      leaf.removeEventListener('transitionend', onEnd);
-      this._finishFlip(direction);
+    this._waitForFlip(() => this._finishFlip(direction), this.options.flipDuration);
+  }
+
+  _waitForFlip(callback, duration) {
+    this._cancelFlipWait?.();
+    const leaf = this._dom.leaf;
+    const finish = (event) => {
+      if (event && (event.target !== leaf || event.propertyName !== 'transform')) return;
+      this._cancelFlipWait?.();
+      if (!this._destroyed) callback();
     };
-    leaf.addEventListener('transitionend', onEnd);
+    // Also complete when a browser skips transitionend (e.g. a fully dragged leaf).
+    const timeout = setTimeout(finish, duration + 60);
+    leaf.addEventListener('transitionend', finish);
+    this._cancelFlipWait = () => {
+      clearTimeout(timeout);
+      leaf.removeEventListener('transitionend', finish);
+      this._cancelFlipWait = null;
+    };
   }
 
   _finishFlip(direction) {
+    if (this._destroyed) return;
     this.spreadIndex += direction;
     const leaf = this._dom.leaf;
     leaf.dataset.state = 'idle';
@@ -650,8 +725,7 @@ export class Flipbook {
     leaf.style.transition = `transform ${duration}ms cubic-bezier(0.45, 0.05, 0.25, 1)`;
     leaf.style.transform = this._leafTransform(drag.direction, targetProgress);
 
-    const onEnd = () => {
-      leaf.removeEventListener('transitionend', onEnd);
+    this._waitForFlip(() => {
       if (shouldComplete) {
         this._finishFlip(drag.direction);
       } else {
@@ -662,8 +736,7 @@ export class Flipbook {
         this.flipping = false;
       }
       this._drag = null;
-    };
-    leaf.addEventListener('transitionend', onEnd);
+    }, duration);
   }
 }
 

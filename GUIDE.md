@@ -1,29 +1,29 @@
-# Publishing flippy-pdf to npmjs.com
+# Publishing pdfthing to npmjs.com
 
 A step-by-step guide for getting this package onto
 [npmjs.com](https://npmjs.com) so anyone can install it with
-`npm install flippy-pdf`.
+`npm install pdfthing`.
 
 ---
 
 ## 0. Confirm the name is still available
 
-The package is named `flippy-pdf` (in `package.json`). Before you publish,
+The package is named `pdfthing` (in `package.json`). Before you publish,
 double-check the name isn't taken on npm:
 
 ```bash
-npm view flippy-pdf
+npm view pdfthing
 # → 404 means available; otherwise pick another name
 # Or just visit:
-#   https://www.npmjs.com/package/flippy-pdf
+#   https://www.npmjs.com/package/pdfthing
 ```
 
-If `flippy-pdf` is taken, the easiest fallback is a scoped name under
+If `pdfthing` is taken, the easiest fallback is a scoped name under
 your own npm username — those are always available:
 
 ```bash
-# In package.json, change "name": "flippy-pdf" to:
-"name": "@mwisam/flippy-pdf"
+# In package.json, change "name": "pdfthing" to:
+"name": "@mwisam/pdfthing"
 ```
 
 Scoped packages require `--access public` on first publish (see §7).
@@ -125,7 +125,7 @@ npm pack --dry-run
 You'll see something like:
 
 ```
-npm notice 📦  flippy-pdf@0.1.0
+npm notice 📦  pdfthing@0.1.0
 npm notice === Tarball Contents ===
 npm notice 5.2kB  LICENSE
 npm notice 8.5kB  README.md
@@ -146,8 +146,8 @@ For an actual tarball you can inspect with `tar tvf`:
 
 ```bash
 npm pack
-tar tvf flippy-pdf-0.1.0.tgz
-rm flippy-pdf-0.1.0.tgz   # don't commit it
+tar tvf pdfthing-0.1.0.tgz
+rm pdfthing-0.1.0.tgz   # don't commit it
 ```
 
 ---
@@ -179,8 +179,8 @@ git push --follow-tags   # push the version commit + tag to GitHub
 ```bash
 mkdir /tmp/test-install && cd /tmp/test-install
 npm init -y
-npm install flippy-pdf
-node -e "import('flippy-pdf').then(m => console.log(Object.keys(m)))"
+npm install pdfthing
+node -e "import('pdfthing').then(m => console.log(Object.keys(m)))"
 # → [ 'Flipbook', 'default', 'setWorkerSrc' ]
 ```
 

@@ -1,7 +1,7 @@
 {
-  "name": "flippy-pdf",
+  "name": "pdfthing",
   "version": "1.0.0",
-  "description": "A reusable, framework-free Issuu-style PDF flipbook viewer with two-page spreads, drag-to-flip, and a responsive single-page mode for mobile.",
+  "description": "PDFthing: a minimal PDF reader for Windows and the web, with curved page turns and a scrolling layout.",
   "type": "module",
   "main": "./src/index.js",
   "module": "./src/index.js",
@@ -26,8 +26,16 @@
     "serve": "vite",
     "start": "vite",
     "build": "vite build",
+    "icons": "node scripts/icons.mjs",
     "preview": "vite preview",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test": "playwright test",
+    "desktop": "npm run build && node scripts/desktop.mjs",
+    "dist:win": "install-electron && npm run build && electron-builder --win --x64",
+    "package:dev": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-dev.ps1",
+    "test:desktop": "playwright test --config playwright.desktop.config.js",
+    "profile:memory": "npm run build && node scripts/memory-profile.mjs",
+    "profile:pages": "npm run build && node scripts/page-speed-browser.mjs"
   },
   "keywords": [
     "pdf",
@@ -50,12 +58,22 @@
   },
   "homepage": "https://github.com/wisam87/flippy-pdf#readme",
   "engines": {
-    "node": ">=18"
+    "node": ">=22.12.0"
   },
   "dependencies": {
-    "pdfjs-dist": "^4.7.76"
+    "@chenglou/pretext": "^0.0.9",
+    "@jungherz-de/glasskit": "^1.11.0",
+    "animejs": "^4.5.0",
+    "neumorui": "^1.0.0",
+    "pdfjs-dist": "^4.7.76",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "three": "^0.186.0"
   },
   "devDependencies": {
-    "vite": "^5.4.10"
+    "@playwright/test": "^1.63.0",
+    "electron": "^44.4.0",
+    "electron-builder": "^26.15.3",
+    "vite": "^8.3.0"
   }
 }

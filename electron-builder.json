@@ -1,0 +1,16 @@
+{
+  "appId": "app.pdfthing.pdf",
+  "productName": "PDFthing",
+  "directories": { "output": "release" },
+  "electronDist": "node_modules/electron/dist",
+  "extraMetadata": { "main": "desktop/main.cjs" },
+  "files": ["dist/**/*", "desktop/*.cjs", "desktop/assets/**/*", "package.json", "!dist/sample.pdf", "!node_modules/**/*"],
+  "asar": true,
+  "npmRebuild": false,
+  "win": {
+    "target": [{ "target": "portable", "arch": ["x64"] }],
+    "icon": "desktop/assets/icon.ico",
+    "signExecutable": false
+  },
+  "portable": { "artifactName": "PDFthing-${version}-Windows-x64.exe" }
+}
